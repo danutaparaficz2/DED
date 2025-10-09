@@ -38,6 +38,11 @@ Train a PINN to solve the heat equation:
 python train_pinn.py --problem heat --epochs 5000 --lr 0.001
 ```
 
+Train a PINN to solve the 3D heat equation:
+```bash
+python train_pinn.py --problem heat3d --epochs 8000 --lr 0.001
+```
+
 Train a PINN to solve the wave equation:
 ```bash
 python train_pinn.py --problem wave --epochs 8000 --hidden_layers 64 64 64 64
@@ -54,6 +59,9 @@ Run pre-configured examples:
 ```bash
 # Heat equation example
 python examples/heat_equation_example.py
+
+# 3D Heat equation example
+python examples/heat_equation_3d_example.py
 
 # Wave equation example
 python examples/wave_equation_example.py
@@ -107,7 +115,15 @@ save_results(model, problem, losses)
 - **Initial Condition**: u(x, 0) = sin(π*x/L)
 - **Exact Solution**: Available for validation
 
-### 2. Wave Equation
+### 2. 3D Heat Equation
+**Equation**: `∂T/∂t = α * (∂²T/∂x² + ∂²T/∂y² + ∂²T/∂z²)`
+
+- **Domain**: x,y,z ∈ [0, L], t ∈ [0, T]
+- **Boundary Conditions**: T = 0 on all boundaries
+- **Initial Condition**: T(x,y,z,0) = sin(π*x/L)*sin(π*y/L)*sin(π*z/L)
+- **Exact Solution**: Available for validation
+
+### 3. Wave Equation
 **Equation**: `u_tt = c² * u_xx`
 
 - **Domain**: x ∈ [0, L], t ∈ [0, T]
@@ -115,7 +131,7 @@ save_results(model, problem, losses)
 - **Initial Conditions**: u(x, 0) = sin(π*x/L), u_t(x, 0) = 0
 - **Exact Solution**: Available for validation
 
-### 3. Burgers Equation
+### 4. Burgers Equation
 **Equation**: `u_t + u * u_x = ν * u_xx`
 
 - **Domain**: x ∈ [-1, 1], t ∈ [0, T]
@@ -134,6 +150,7 @@ DED/
 │   └── utils.py             # Utility functions and visualization
 ├── examples/
 │   ├── heat_equation_example.py
+│   ├── heat_equation_3d_example.py
 │   ├── wave_equation_example.py
 │   └── burgers_equation_example.py
 ├── tests/
@@ -148,7 +165,7 @@ DED/
 The `train_pinn.py` script supports various command-line arguments:
 
 ### Problem Selection
-- `--problem`: Choose from 'heat', 'wave', 'burgers'
+- `--problem`: Choose from 'heat', 'heat3d', 'wave', 'burgers'
 
 ### Model Architecture
 - `--hidden_layers`: List of hidden layer sizes (default: [50, 50, 50, 50])

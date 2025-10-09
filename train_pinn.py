@@ -20,7 +20,7 @@ import numpy as np
 from typing import List
 
 from src.pinn import PINN
-from src.pde_problems import HeatEquation, WaveEquation, BurgersEquation
+from src.pde_problems import HeatEquation, WaveEquation, BurgersEquation, HeatEquation3D
 from src.utils import save_results, compute_error_metrics
 
 
@@ -28,6 +28,7 @@ def create_problem(problem_name: str, **kwargs):
     """Create a PDE problem instance based on the problem name."""
     problems = {
         'heat': HeatEquation,
+        'heat3d': HeatEquation3D,
         'wave': WaveEquation, 
         'burgers': BurgersEquation
     }
@@ -43,7 +44,7 @@ def main():
     
     # Problem selection
     parser.add_argument('--problem', type=str, required=True,
-                       choices=['heat', 'wave', 'burgers'],
+                       choices=['heat', 'heat3d', 'wave', 'burgers'],
                        help='PDE problem to solve')
     
     # Model architecture
@@ -101,6 +102,8 @@ def main():
     # Add problem-specific default parameters
     if args.problem == 'heat':
         problem_params.update({'alpha': 0.1, 'L': 1.0, 'T': 1.0})
+    elif args.problem == 'heat3d':
+        problem_params.update({'alpha': 1.0, 'L': 1.0, 'T': 1.0})
     elif args.problem == 'wave':
         problem_params.update({'c': 1.0, 'L': 1.0, 'T': 2.0})
     elif args.problem == 'burgers':
@@ -112,12 +115,17 @@ def main():
     
     # Create PINN model
     print("Creating PINN model...")
-    model = PINN(
-        input_dim=2,  # (x, t) for all problems
-        hidden_layers=args.hidden_layers,
-        output_dim=1,  # u(x, t)
-        activation=args.activation
-    )
+    
+    # Determine input dimension based on problem type
+    if args.problem == 'heat3d':
+        model = PINN.create_3d_heat_pinn()  # Use specialized 3D architecture
+    else:
+        model = PINN(
+            input_dim=2,  # (x, t) for 1D problems
+            hidden_layers=args.hidden_layers,
+            output_dim=1,  # u(x, t) or T(x, y, z, t)
+            activation=args.activation
+        )
     
     print(f"Model configuration:")
     print(f"  Input dimension: {model.input_dim}")

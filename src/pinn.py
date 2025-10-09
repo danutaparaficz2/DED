@@ -53,6 +53,22 @@ class PINN(nn.Module):
         
         # Initialize weights using Xavier initialization
         self._initialize_weights()
+    
+    @classmethod
+    def create_3d_heat_pinn(cls):
+        """
+        Create a PINN specifically configured for 3D heat equation problems.
+        Uses the architecture from the provided 3D heat equation code.
+        
+        Returns:
+            PINN configured for 3D heat equation (4 inputs: x,y,z,t -> 1 output: T)
+        """
+        return cls(
+            input_dim=4,  # x, y, z, t
+            hidden_layers=[256, 256, 256],  # 3 hidden layers with 256 neurons each
+            output_dim=1,  # Temperature T
+            activation='tanh'
+        )
         
     def _get_activation(self, activation: str) -> nn.Module:
         """Get activation function by name."""
