@@ -196,12 +196,41 @@ python tests/test_pinn.py
 
 ## Results
 
-Training results are automatically saved to the specified output directory and include:
+Training results are automatically saved to the specified output directory and typically include:
 
 - **Model checkpoint**: Trained PINN model (`.pth` file)
-- **Loss plots**: Training loss history
-- **Solution plots**: 1D and 2D visualizations of the learned solution
-- **Error metrics**: L2, relative L2, and L∞ errors (when exact solution is available)
+- **Loss plots**: Training loss history (PNG)
+- **Solution plots**: 2D and 3D visualizations of the learned solution (PNG)
+- **Error metrics**: Text file with RMSE / timing information (when exact solution is available)
+
+Example: Plate-with-Hole (results from `examples/plate_with_hole_example.py`)
+---------------------------------------------------------------
+
+When you run the `plate_with_hole_example.py` example the script saves a small set of artifacts to `results/plate_with_hole/`. Expected files (created by the example) are:
+
+- `results/plate_with_hole/plate_hole_model.pth` — saved PyTorch model checkpoint
+- `results/plate_with_hole/plate_hole_loss_adam.png` — Adam training loss curve
+- `results/plate_with_hole/plate_hole_solution_and_error.png` — 2D panels (prediction, exact, absolute error)
+- `results/plate_with_hole/plate_hole_solution_and_error_3d.png` — optional 3D surface panels (triangular surface)
+- `results/plate_with_hole/plate_hole_metrics.txt` — simple metrics file (RMSE, timings)
+
+Notes on these outputs
+- The 2D/3D plots are created from a triangular sampling of the domain that excludes the circular hole. Use these images to visually compare the PINN solution to the analytic solution `T(r) = (r - a)^2`.
+- The metrics file contains a scalar RMSE computed on the held-out grid and the elapsed training times for Adam and L-BFGS (if L-BFGS was run).
+
+How to reproduce the Plate-with-Hole results
+1. From the repository root, run the example (default: Adam 10000 epochs + L-BFGS):
+
+```bash
+python examples/plate_with_hole_example.py
+```
+
+2. For a faster smoke test (short run), edit the `epochs` argument in the example or call the function with smaller values; reduce `n_collocation`/`n_boundary` for quick iteration.
+
+3. After the run completes, open the generated images in `results/plate_with_hole/`.
+
+Corner diagnostics
+- Because corners are intersection points of vertical/horizontal outer boundaries, the example supports printing or saving corner diagnostics (predicted vs analytic) as a small post-training check. If you want the script to always write corner diagnostics to disk, I can add that snippet into the example.
 
 ## Dependencies
 
