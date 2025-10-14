@@ -5,3 +5,7 @@ scipy>=1.7.0
 pandas>=1.3.0
 seaborn>=0.11.0
 tqdm>=4.62.0
+# Optional (DeepXDE example):
+# deepxde depends on TensorFlow; install only if you want to run the DeepXDE example
+# deepxde>=1.0.0
+#tensorflow>=2.6.0

@@ -105,6 +105,105 @@ class HeatEquation(PDEProblem):
         return torch.sin(np.pi * x_coord / self.L) * torch.exp(-self.alpha * (np.pi / self.L) ** 2 * t_coord)
 
 
+class HeatEquation2D(PDEProblem):
+    """
+    2D Heat equation: u_t = alpha * (u_xx + u_yy)
+    Domain: x,y ∈ [0, L], t ∈ [0, T]
+
+    Boundary conditions: u = 0 on spatial boundaries
+    Initial condition: u(x,y,0) = sin(π*x/L) * sin(π*y/L)
+    """
+
+    def __init__(self, alpha: float = 0.1, L: float = 1.0, T: float = 1.0,
+                 n_collocation: int = 2000, n_boundary: int = 400, n_initial: int = 400):
+        domain = {'x': [0, L], 'y': [0, L], 't': [0, T]}
+        super().__init__(domain, "2D Heat Equation")
+
+        self.alpha = alpha
+        self.L = L
+        self.T = T
+        self.n_collocation = n_collocation
+        self.n_boundary = n_boundary
+        self.n_initial = n_initial
+
+        # collocation (interior) points: sample x,y in [0,L], t in [0,T]
+        self.x_collocation = torch.rand(n_collocation, 1) * L
+        self.y_collocation = torch.rand(n_collocation, 1) * L
+        self.t_collocation = torch.rand(n_collocation, 1) * T
+        self.collocation_points = torch.cat([self.x_collocation, self.y_collocation, self.t_collocation], dim=1)
+
+        # boundary points on the 4 edges (x=0, x=L, y=0, y=L)
+        n_per_edge = max(1, n_boundary // 4)
+        # x = 0
+        x0 = torch.zeros(n_per_edge, 1)
+        y0 = torch.rand(n_per_edge, 1) * L
+        t0 = torch.rand(n_per_edge, 1) * T
+        left = torch.cat([x0, y0, t0], dim=1)
+        # x = L
+        xL = torch.ones(n_per_edge, 1) * L
+        yL = torch.rand(n_per_edge, 1) * L
+        tL = torch.rand(n_per_edge, 1) * T
+        right = torch.cat([xL, yL, tL], dim=1)
+        # y = 0
+        y0b = torch.zeros(n_per_edge, 1)
+        x0b = torch.rand(n_per_edge, 1) * L
+        t0b = torch.rand(n_per_edge, 1) * T
+        bottom = torch.cat([x0b, y0b, t0b], dim=1)
+        # y = L
+        yLb = torch.ones(n_per_edge, 1) * L
+        xLb = torch.rand(n_per_edge, 1) * L
+        tLb = torch.rand(n_per_edge, 1) * T
+        top = torch.cat([xLb, yLb, tLb], dim=1)
+
+        self.boundary_points = torch.cat([left, right, bottom, top], dim=0)
+
+        # initial condition points (t=0)
+        self.x_initial = torch.rand(n_initial, 1) * L
+        self.y_initial = torch.rand(n_initial, 1) * L
+        self.t_initial = torch.zeros(n_initial, 1)
+        self.initial_points = torch.cat([self.x_initial, self.y_initial, self.t_initial], dim=1)
+
+    def pde_loss(self, model) -> torch.Tensor:
+        pts = self.collocation_points.clone().requires_grad_(True)
+        x = pts[:, 0:1]
+        y = pts[:, 1:2]
+        t = pts[:, 2:3]
+
+        derivatives = model.compute_derivatives(pts, order=2)
+        # indices: 0 -> x, 1 -> y, 2 -> t
+        u_t = derivatives.get('u_2')
+        u_xx = derivatives.get('u_00')
+        u_yy = derivatives.get('u_11')
+        if u_t is None:
+            u_t = torch.zeros_like(pts[:, 0:1])
+        if u_xx is None:
+            u_xx = torch.zeros_like(pts[:, 0:1])
+        if u_yy is None:
+            u_yy = torch.zeros_like(pts[:, 0:1])
+
+        residual = u_t - self.alpha * (u_xx + u_yy)
+        return torch.mean(residual ** 2)
+
+    def boundary_loss(self, model) -> torch.Tensor:
+        pts = self.boundary_points.clone()
+        u = model(pts)
+        return torch.mean(u ** 2)
+
+    def initial_loss(self, model) -> torch.Tensor:
+        pts = self.initial_points.clone()
+        u_pred = model(pts)
+        u_exact = torch.sin(np.pi * self.x_initial / self.L) * torch.sin(np.pi * self.y_initial / self.L)
+        return torch.mean((u_pred - u_exact) ** 2)
+
+    def exact_solution(self, x: torch.Tensor) -> torch.Tensor:
+        # x is (N,3) with columns (x,y,t)
+        x_coord = x[:, 0:1]
+        y_coord = x[:, 1:2]
+        t_coord = x[:, 2:3]
+        return (torch.sin(np.pi * x_coord / self.L) * torch.sin(np.pi * y_coord / self.L) *
+                torch.exp(-2 * (np.pi / self.L) ** 2 * self.alpha * t_coord))
+
+
 class WaveEquation(PDEProblem):
     """
     1D Wave equation: u_tt = c² * u_xx
@@ -399,3 +498,246 @@ class HeatEquation3D(PDEProblem):
                 torch.sin(np.pi * y_coord / self.L) * 
                 torch.sin(np.pi * z_coord / self.L) * 
                 torch.exp(-3 * np.pi**2 * self.alpha * t_coord / self.L**2))
+
+
+class PlateWithHole(PDEProblem):
+    """
+    Stationary 2D heat (Poisson) problem on a square plate with a circular hole.
+
+    Analytical solution (used to build source term and BCs):
+        T(x,y) = (sqrt(x^2 + y^2) - a)**2,    for r >= a
+
+    Domain: square [-b, b] x [-b, b] with a circular hole of radius a at origin.
+
+        Boundary conditions used (following the reference):
+            - Dirichlet on the inner circle (r = a): T = 0
+            - Dirichlet on the vertical outer edges x = +/- b: T(x=±b,y) = (sqrt(b^2 + y^2) - a)^2
+            - Neumann on the horizontal outer edges y = +/- b: dT/dy(x,y=±b) = analytic_neumann
+    """
+
+    def __init__(self, a: float = 0.2, b: float = 1.0,
+                 n_collocation: int = 3600, n_boundary: int = 1300,
+                 outer_vertical_fraction: float = 0.6,
+                 n_collocation_outer: int = 0,
+                 outer_band_width: float = 0.15):
+        domain = {'x': [-b, b], 'y': [-b, b]}
+        super().__init__(domain, "Plate with Hole")
+
+        self.a = a
+        self.b = b
+        self.n_collocation = n_collocation
+        self.n_boundary = n_boundary
+        # fraction of remaining boundary points allocated to outer vertical edges
+        self.outer_vertical_fraction = float(outer_vertical_fraction)
+        # number of extra collocation points to sample near outer edges/corners
+        self.n_collocation_outer = int(n_collocation_outer)
+        # width of the outer sampling band (fraction of b)
+        self.outer_band_width = float(outer_band_width)
+
+        # Generate collocation points in square but exclude interior of the hole
+        self.collocation_points = self._sample_domain_points(n_collocation)
+        # Optionally add focused collocation points near the outer boundary (corners/edges)
+        if self.n_collocation_outer and self.n_collocation_outer > 0:
+            extra = self._sample_outer_band(self.n_collocation_outer, band_width=self.outer_band_width)
+            if extra.numel() > 0:
+                self.collocation_points = torch.cat([self.collocation_points, extra], dim=0)
+
+        # Boundary points: inner circle (Dirichlet), outer square edges
+        self._generate_boundary_points()
+
+    def _sample_domain_points(self, n_points: int):
+        pts = []
+        # Draw in batches until we have enough points outside the hole
+        batch = max(1024, n_points)
+        while len(pts) < n_points:
+            xy = (torch.rand(batch, 2) * (self.b - (-self.b)) + (-self.b))
+            r = torch.sqrt(xy[:, 0:1] ** 2 + xy[:, 1:2] ** 2)
+            mask = (r >= self.a).squeeze()
+            valid = xy[mask]
+            if valid.numel() > 0:
+                pts.append(valid)
+            # limit growth
+            if sum(p.size(0) for p in pts) > 10 * n_points:
+                break
+        if len(pts) == 0:
+            return torch.zeros(0, 2)
+        pts = torch.cat(pts, dim=0)[:n_points]
+        return pts
+
+    def _sample_outer_band(self, n_points: int, band_width: float = 0.15):
+        """Sample additional collocation points in an outer band of width (band_width * b)."""
+        band = band_width * self.b
+        pts = []
+        batch = max(1024, n_points)
+        attempts = 0
+        while len(pts) < n_points and attempts < 100:
+            xy = (torch.rand(batch, 2) * (self.b - (-self.b)) + (-self.b))
+            r = torch.sqrt(xy[:, 0:1] ** 2 + xy[:, 1:2] ** 2).squeeze()
+            # select points in outer band: b - band <= max(|x|,|y|) <= b and outside hole
+            mask_outer = (torch.max(torch.abs(xy), dim=1).values >= (self.b - band))
+            mask_hole = (r >= self.a)
+            mask = (mask_outer & mask_hole)
+            valid = xy[mask]
+            if valid.numel() > 0:
+                pts.append(valid)
+            attempts += 1
+        if len(pts) == 0:
+            return torch.zeros(0, 2)
+        pts = torch.cat(pts, dim=0)[:n_points]
+        return pts
+
+    def _generate_boundary_points(self):
+        # Inner circle (Dirichlet)
+        # allocate a balanced fraction: more points to outer vertical Dirichlet edges
+        # Default split: inner 40%, outer vertical 40%, outer horizontal 20%
+        n_inner = max(10, int(self.n_boundary * 0.4))
+        theta = torch.rand(n_inner, 1) * 2 * np.pi
+        x_in = self.a * torch.cos(theta)
+        y_in = self.a * torch.sin(theta)
+        inner = torch.cat([x_in, y_in], dim=1)
+        # Outer square edges: split remaining points between vertical (Dirichlet)
+        # and horizontal (Neumann) edges
+        remaining = max(0, self.n_boundary - n_inner)
+        # allow caller to control fraction allocated to vertical outer edges
+        n_vertical = max(1, int(remaining * float(getattr(self, 'outer_vertical_fraction', 0.6))))  # left+right combined
+        n_horizontal = max(1, remaining - n_vertical)  # bottom+top combined
+
+        # allocate equally between left and right
+        n_per_vertical_edge = max(1, n_vertical // 2)
+        y_lr = torch.rand(n_per_vertical_edge, 1) * (2 * self.b) - self.b
+        left = torch.cat([torch.ones(n_per_vertical_edge, 1) * (-self.b), y_lr], dim=1)
+        right = torch.cat([torch.ones(n_per_vertical_edge, 1) * self.b, y_lr], dim=1)
+
+        # allocate equally between bottom and top
+        n_per_horizontal_edge = max(1, n_horizontal // 2)
+        x_tb = torch.rand(n_per_horizontal_edge, 1) * (2 * self.b) - self.b
+        bottom = torch.cat([x_tb, torch.ones(n_per_horizontal_edge, 1) * (-self.b)], dim=1)
+        top = torch.cat([x_tb, torch.ones(n_per_horizontal_edge, 1) * self.b], dim=1)
+
+        self.boundary_inner = inner
+        self.boundary_dirichlet = torch.cat([left, right], dim=0)
+        self.boundary_neumann = torch.cat([bottom, top], dim=0)
+
+    def boundary_losses(self, model) -> dict:
+        """Return separate boundary loss components: inner_dirichlet, outer_dirichlet, outer_neumann."""
+        losses = {}
+
+        # Inner circle Dirichlet: T = 0
+        if self.boundary_inner is not None and self.boundary_inner.size(0) > 0:
+            u_in = model(self.boundary_inner)
+            losses['inner_dirichlet'] = torch.mean((u_in - 0.0) ** 2)
+        else:
+            losses['inner_dirichlet'] = torch.tensor(0.0)
+
+        # Outer vertical edges Dirichlet: T = 0
+        if self.boundary_dirichlet is not None and self.boundary_dirichlet.size(0) > 0:
+            pts = self.boundary_dirichlet
+            u_dir = model(pts)
+            x = pts[:, 0:1]
+            y = pts[:, 1:2]
+            r = torch.sqrt(x ** 2 + y ** 2)
+            # analytic Dirichlet value on outer vertical edges
+            analytic_dir = (r - self.a) ** 2
+            losses['outer_dirichlet'] = torch.mean((u_dir - analytic_dir) ** 2)
+        else:
+            losses['outer_dirichlet'] = torch.tensor(0.0)
+
+        # Outer horizontal edges Neumann: analytic dT/dy
+        if self.boundary_neumann is not None and self.boundary_neumann.size(0) > 0:
+            pts = self.boundary_neumann.clone().requires_grad_(True)
+            x = pts[:, 0:1]
+            y = pts[:, 1:2]
+            u = model(pts)
+            u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u), create_graph=True, allow_unused=True)[0]
+            if u_y is None:
+                u_y = torch.zeros_like(u)
+            r = torch.sqrt(x ** 2 + y ** 2)
+            r = torch.where(r == 0.0, torch.ones_like(r) * 1e-6, r)
+            # analytic Neumann (dT/dy) = 2*(r - a) * (y / r)
+            analytic_neu = 2.0 * (r - self.a) * (y / r)
+            losses['outer_neumann'] = torch.mean((u_y - analytic_neu) ** 2)
+        else:
+            losses['outer_neumann'] = torch.tensor(0.0)
+
+        return losses
+
+    def pde_loss(self, model) -> torch.Tensor:
+        """PDE residual: u_xx + u_yy - source(x,y) = 0 where source = 4 - 2a/r"""
+        pts = self.collocation_points.clone().requires_grad_(True)
+        x = pts[:, 0:1]
+        y = pts[:, 1:2]
+
+        u = model(torch.cat([x, y], dim=1))
+
+        # second derivatives
+        u_x = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True, allow_unused=True)[0]
+        if u_x is None:
+            u_x = torch.zeros_like(u)
+        u_xx = torch.autograd.grad(u_x, x, grad_outputs=torch.ones_like(u_x), create_graph=True, allow_unused=True)[0]
+        if u_xx is None:
+            u_xx = torch.zeros_like(u)
+        u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u), create_graph=True, allow_unused=True)[0]
+        if u_y is None:
+            u_y = torch.zeros_like(u)
+        u_yy = torch.autograd.grad(u_y, y, grad_outputs=torch.ones_like(u_y), create_graph=True, allow_unused=True)[0]
+        if u_yy is None:
+            u_yy = torch.zeros_like(u)
+
+        r = torch.sqrt(x ** 2 + y ** 2)
+        r = torch.where(r == 0.0, torch.ones_like(r) * 1e-6, r)
+        source = 4.0 - 2.0 * self.a / r
+
+        residual = u_xx + u_yy - source
+        return torch.mean(residual ** 2)
+
+    def boundary_loss(self, model) -> torch.Tensor:
+        """Combine Dirichlet and Neumann boundary penalties."""
+        loss = 0.0
+
+        # Inner circle Dirichlet: T = 0
+        if self.boundary_inner is not None and self.boundary_inner.size(0) > 0:
+            u_in = model(self.boundary_inner)
+            loss = loss + torch.mean((u_in - 0.0) ** 2)
+
+        # Outer vertical edges Dirichlet: analytic Dirichlet on outer edge
+        if self.boundary_dirichlet is not None and self.boundary_dirichlet.size(0) > 0:
+            pts = self.boundary_dirichlet
+            u_dir = model(pts)
+            x = pts[:, 0:1]
+            y = pts[:, 1:2]
+            r = torch.sqrt(x ** 2 + y ** 2)
+            analytic_dir = (r - self.a) ** 2
+            loss = loss + torch.mean((u_dir - analytic_dir) ** 2)
+
+        # Outer horizontal edges Neumann: analytic Neumann dT/dy
+        if self.boundary_neumann is not None and self.boundary_neumann.size(0) > 0:
+            pts = self.boundary_neumann.clone().requires_grad_(True)
+            x = pts[:, 0:1]
+            y = pts[:, 1:2]
+            u = model(pts)
+            u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u), create_graph=True, allow_unused=True)[0]
+            if u_y is None:
+                u_y = torch.zeros_like(u)
+            r = torch.sqrt(x ** 2 + y ** 2)
+            r = torch.where(r == 0.0, torch.ones_like(r) * 1e-6, r)
+            analytic_neu = 2.0 * (r - self.a) * (y / r)
+            loss = loss + torch.mean((u_y - analytic_neu) ** 2)
+
+        return loss
+
+    def exact_solution(self, x: torch.Tensor) -> torch.Tensor:
+        """Exact analytical solution: (r - a)^2 for r >= a"""
+        x_coord = x[:, 0:1]
+        y_coord = x[:, 1:2]
+        r = torch.sqrt(x_coord ** 2 + y_coord ** 2)
+        return (r - self.a) ** 2
+
+    def sample_test_grid(self, n: int = 50):
+        """Return a grid of points in the domain excluding the hole."""
+        xs = torch.linspace(-self.b, self.b, n)
+        ys = torch.linspace(-self.b, self.b, n)
+        X, Y = torch.meshgrid(xs, ys, indexing='xy')
+        pts = torch.stack([X.flatten(), Y.flatten()], dim=1)
+        r = torch.sqrt(pts[:, 0:1] ** 2 + pts[:, 1:2] ** 2)
+        mask = (r >= self.a).squeeze()
+        return pts[mask]

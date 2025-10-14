@@ -76,8 +76,21 @@ class PINN(nn.Module):
             'tanh': nn.Tanh(),
             'relu': nn.ReLU(),
             'sigmoid': nn.Sigmoid(),
-            'leaky_relu': nn.LeakyReLU()
+            'leaky_relu': nn.LeakyReLU(),
+            'gelu': nn.GELU(),
+            'sine': None
         }
+        # Sine requires a small nn.Module wrapper because it's not in torch.nn
+        if activation == 'sine':
+            class Sine(nn.Module):
+                def __init__(self):
+                    super().__init__()
+
+                def forward(self, x: torch.Tensor) -> torch.Tensor:
+                    return torch.sin(x)
+
+            return Sine()
+
         return activations.get(activation, nn.Tanh())
     
     def _initialize_weights(self):

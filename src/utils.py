@@ -5,7 +5,10 @@ Utility functions for PINN training and analysis.
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+try:
+    import seaborn as sns
+except Exception:
+    sns = None
 from typing import List, Tuple, Optional, Dict
 import os
 

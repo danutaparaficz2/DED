@@ -20,7 +20,7 @@ import numpy as np
 from typing import List
 
 from src.pinn import PINN
-from src.pde_problems import HeatEquation, WaveEquation, BurgersEquation, HeatEquation3D
+from src.pde_problems import HeatEquation, WaveEquation, BurgersEquation, HeatEquation3D, PlateWithHole
 from src.utils import save_results, compute_error_metrics
 
 
@@ -29,8 +29,9 @@ def create_problem(problem_name: str, **kwargs):
     problems = {
         'heat': HeatEquation,
         'heat3d': HeatEquation3D,
-        'wave': WaveEquation, 
-        'burgers': BurgersEquation
+        'wave': WaveEquation,
+        'burgers': BurgersEquation,
+        'plate_hole': PlateWithHole
     }
     
     if problem_name not in problems:
@@ -44,7 +45,7 @@ def main():
     
     # Problem selection
     parser.add_argument('--problem', type=str, required=True,
-                       choices=['heat', 'heat3d', 'wave', 'burgers'],
+                       choices=['heat', 'heat3d', 'wave', 'burgers', 'plate_hole'],
                        help='PDE problem to solve')
     
     # Model architecture
@@ -104,6 +105,9 @@ def main():
         problem_params.update({'alpha': 0.1, 'L': 1.0, 'T': 1.0})
     elif args.problem == 'heat3d':
         problem_params.update({'alpha': 1.0, 'L': 1.0, 'T': 1.0})
+    elif args.problem == 'plate_hole':
+        # Plate-with-hole is stationary 2D problem; collocation and boundary sizes handled by class
+        pass
     elif args.problem == 'wave':
         problem_params.update({'c': 1.0, 'L': 1.0, 'T': 2.0})
     elif args.problem == 'burgers':
